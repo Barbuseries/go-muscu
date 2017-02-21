@@ -3,6 +3,35 @@
 #include <fcntl.h>
 #include "ef_utils.h"
 
+// TODO: Implement configuration files:
+// 
+//         - One for the general configuration:
+//           - Voice on/off
+//           - Music commands (on and off)
+//           - Default exercise/program?
+//           - Other text-to-speech program. (Not a priority)
+//           
+//         - One for each exercise/program
+//           - Syntax:
+//             EXERCISE_NAME
+//             SERIES PAUSE_DURATION or SERIES DURATION PAUSE_DURATION
+//
+//             EXERCISE_NAME
+//             ...
+//             
+//           - If NAME starts with a '@', it's a reference to another
+//             exercise.
+//             That way, one can do this:
+//               @chest
+//               @back
+//               ...
+//
+//      Add command-line options:
+//
+//        - Override config file
+//        - Start a series of exercises, programs
+//        - Randomize? (program-wise, not exercise-wise)
+
 struct Exercise
 {
 	char name[64];
@@ -75,7 +104,6 @@ int festival_say(char *text)
 		perror("pipe");
 		return -1;
 	}
-		
 
 	set_music(0);
 	
@@ -108,10 +136,10 @@ int festival_say(char *text)
 			close(pipe_fd[0]);
 
 			char buffer[255];
-			int num_writen = snprintf(buffer, sizeof(buffer) - 1, "%s\n", text);
-			buffer[num_writen] = '\0';
+			int num_written = snprintf(buffer, sizeof(buffer) - 1, "%s\n", text);
+			buffer[num_written] = '\0';
 				
-			write(pipe_fd[1], buffer, num_writen + 1);
+			write(pipe_fd[1], buffer, num_written + 1);
 			close(pipe_fd[1]);
 					
 			printf("%s", buffer);
@@ -123,9 +151,9 @@ int festival_say(char *text)
 	set_music(1);
 }
 
-void wait_and_print_chrono(int duration)
+void wait_and_print_chrono(int seconds)
 {
-	int time_in_cs = duration * 100;
+	int time_in_cs = seconds * 100;
 					
 	for (int i = time_in_cs; i > 0; --i)
 	{
@@ -157,7 +185,7 @@ int main(int argc, char* argv[])
 	add_exercise(&program, "Mixte push-ups", 3, 0, 90);
 	add_exercise(&program, "Indian push-ups", 3, 60, 60);
 
-	// // abdo
+	// abdo
 	add_exercise(&program, "Legs-up", 3, 0, 60);
 	add_exercise(&program, "Legs-side", 3, 0, 60);
 	add_exercise(&program, "Plank", 3, 60, 60);
