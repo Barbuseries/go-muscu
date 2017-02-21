@@ -1,5 +1,6 @@
 #include <unistd.h>
 #include <wait.h>
+#include <fcntl.h>
 #include "ef_utils.h"
 
 struct Exercise
@@ -15,11 +16,55 @@ struct Exercise
 
 struct Program
 {
-    Exercise all_exercises[10];
+    Exercise all_exercises[42];
 	u8 exercise_count;
 	
 	u8 current_exercise;
 };
+
+void set_music(b32 on)
+{
+	pid_t child_pid;
+	
+	switch(child_pid = fork())
+	{
+		case 0:
+		{
+			int fd;
+
+			if ((fd = open("/dev/null", O_WRONLY)) == -1)
+			{
+				perror("/dev/null");
+				return;
+			}
+
+			dup2(fd, STDOUT_FILENO);
+			dup2(fd, STDERR_FILENO);
+
+			close(fd);
+			
+			if (on)
+			{
+				execlp("mpc", "mpc", "play", NULL);
+			}
+			else
+			{
+				execlp("mpc", "mpc", "pause", NULL);
+			}
+		}
+
+		case -1:
+		{
+			perror("music");
+			return;
+		}
+
+		default:
+		{
+			waitpid(child_pid, NULL, 0);
+		}
+	}
+}
 
 int festival_say(char *text)
 {
@@ -31,8 +76,11 @@ int festival_say(char *text)
 		return -1;
 	}
 		
+
+	set_music(0);
+	
 	pid_t child_pid;
-		
+
 	switch (child_pid = fork())
 	{
 		case 0:
@@ -46,7 +94,7 @@ int festival_say(char *text)
 				
 			perror("festival");
 					
-			break;
+			return 1;
 		}
 			
 		case -1:
@@ -71,17 +119,50 @@ int festival_say(char *text)
 			waitpid(child_pid, NULL, 0);
 		}
 	}
+	
+	set_music(1);
+}
+
+void wait_and_print_chrono(int duration)
+{
+	int time_in_cs = duration * 100;
+					
+	for (int i = time_in_cs; i > 0; --i)
+	{
+		printf("%.02fs\r", 0.01f * i);
+		fflush(stdout);
+		usleep(10000);
+	}
+}
+
+void add_exercise(Program *program, char *name, u8 series_count, i32 duration, i32 pause_duration)
+{
+	ASSERT(program->exercise_count < ARRAY_SIZE(program->all_exercises));
+
+	Exercise *exercise = program->all_exercises + program->exercise_count++;
+	
+	strncpy(exercise->name, name, MIN(sizeof(exercise->name) - 1, strlen(name)));
+	exercise->series_count = series_count;
+	exercise->duration = duration;
+	exercise->pause_duration = pause_duration;
 }
 
 int main(int argc, char* argv[])
 {
 	Program program = {};
-	strncpy(program.all_exercises[0].name, "Push-ups", strlen("Push-ups"));
-	program.all_exercises[0].pause_duration = 90;
-	program.all_exercises[0].series_count = 3;
 
-	program.exercise_count++;
+	// chest
+	add_exercise(&program, "Push-ups", 3, 0, 90);
+	add_exercise(&program, "Jumping push-ups", 3, 0, 90);
+	add_exercise(&program, "Mixte push-ups", 3, 0, 90);
+	add_exercise(&program, "Indian push-ups", 3, 60, 60);
 
+	// // abdo
+	add_exercise(&program, "Legs-up", 3, 0, 60);
+	add_exercise(&program, "Legs-side", 3, 0, 60);
+	add_exercise(&program, "Plank", 3, 60, 60);
+	add_exercise(&program, "Elbow-to-knee", 3, 0, 45);
+	
 	while (program.current_exercise < program.exercise_count)
 	{
 		Exercise *current_exercise = program.all_exercises + program.current_exercise++;
@@ -95,25 +176,31 @@ int main(int argc, char* argv[])
 
 			if (current_exercise->duration)
 			{
-				sleep(current_exercise->duration);
+				wait_and_print_chrono(current_exercise->duration);
+				
 				festival_say("Stop");
 			}
 			else
 			{
+				printf("Waiting for input...\n");
+				
 				getchar();
 			}
 
-			festival_say("Pause");
-
-			for (int i = 0; i < current_exercise->pause_duration; ++i)
+			if (!((program.current_exercise == program.exercise_count) &&
+				  (current_exercise->current_series == current_exercise->series_count)))
 			{
-				printf("%d\r", i);
-				fflush(stdout);
-				sleep(1);
+				festival_say("Pause");
+
+				wait_and_print_chrono(current_exercise->pause_duration);
+
+				printf("\r\033[K");
 			}
-			
-		}		
+		}
 	}
+
+	festival_say("Finished! Congratulations!");
+	festival_say("Now, go take a shower.");
 			
 	return 0;
 }
