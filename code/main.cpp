@@ -377,6 +377,8 @@ int parse_config_file(char *filename, Config *config)
 					PROGRAM, line_count, len_left_side, left_side);
 			++num_errors;
 		}
+
+		++line_count;
 	}
 
 	return num_errors;
