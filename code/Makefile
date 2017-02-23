@@ -1,6 +1,6 @@
 CC = g++
 DEFINES = -DEF_DEBUG=1
-CFLAGS = -W -Wall -g $(DEFINES)
+CFLAGS = -W -Wall -g $(DEFINES) -Wno-write-strings
 LDFLAGS = 
 
 BUILD_DIR=../build/

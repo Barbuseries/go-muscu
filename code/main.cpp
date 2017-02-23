@@ -51,12 +51,41 @@ struct Program
 	u8 current_exercise;
 };
 
-void set_music(b32 on)
+struct Command
 {
+    char *name;
+	
+	char **args;
+	i32 argc;
+};
+
+struct Config
+{
+	Command music_on,
+		    music_off;
+
+    b32 voice_on;
+};
+
+void set_music(Config *config, b32 on)
+{
+	Command *music_command = (on) ? &config->music_on : &config->music_off;
+
+	if (music_command->name == NULL)
+	{
+		return;
+	}
+	
 	pid_t child_pid;
 	
 	switch(child_pid = fork())
 	{
+		case -1:
+		{
+			perror("music");
+			return;
+		}
+		
 		case 0:
 		{
 			int fd;
@@ -71,22 +100,12 @@ void set_music(b32 on)
 			dup2(fd, STDERR_FILENO);
 
 			close(fd);
-			
-			if (on)
-			{
-				execlp("mpc", "mpc", "play", NULL);
-			}
-			else
-			{
-				execlp("mpc", "mpc", "pause", NULL);
-			}
-		}
 
-		case -1:
-		{
+			execvp(music_command->name, music_command->args);
 			perror("music");
+
 			return;
-		}
+		}		
 
 		default:
 		{
@@ -95,8 +114,14 @@ void set_music(b32 on)
 	}
 }
 
-int festival_say(char *text)
+int festival_say(Config *config, char *text)
 {
+	if (!config->voice_on)
+	{
+		printf("%s\n", text);
+		return 0;
+	}
+	
 	int pipe_fd[2];
 		
 	if (pipe(pipe_fd) == -1)
@@ -105,12 +130,18 @@ int festival_say(char *text)
 		return -1;
 	}
 
-	set_music(0);
+	set_music(config, 0);
 	
 	pid_t child_pid;
 
 	switch (child_pid = fork())
 	{
+		case -1:
+		{
+			perror("fork");
+			return -2;
+		}
+		
 		case 0:
 		{
 			close(pipe_fd[1]);
@@ -123,12 +154,6 @@ int festival_say(char *text)
 			perror("festival");
 					
 			return 1;
-		}
-			
-		case -1:
-		{
-			perror("fork");
-			return -2;
 		}
 
 		default:
@@ -148,7 +173,9 @@ int festival_say(char *text)
 		}
 	}
 	
-	set_music(1);
+	set_music(config, 1);
+
+	return 0;
 }
 
 void wait_and_print_chrono(int seconds)
@@ -161,6 +188,8 @@ void wait_and_print_chrono(int seconds)
 		fflush(stdout);
 		usleep(10000);
 	}
+
+	printf("\r\033[K");
 }
 
 void add_exercise(Program *program, char *name, u8 series_count, i32 duration, i32 pause_duration)
@@ -175,8 +204,45 @@ void add_exercise(Program *program, char *name, u8 series_count, i32 duration, i
 	exercise->pause_duration = pause_duration;
 }
 
+void init_command(Command *command, char *name)
+{
+	size_t name_len = strlen(name);
+	
+	STRING_N_COPY(command->name, name, name_len);
+
+	command->argc = 0;
+	
+	command->args = (char **) malloc(2 * sizeof(char *));
+	STRING_N_COPY(command->args[0], name, name_len);
+	
+	command->args[1] = NULL;
+}
+
+void add_argument(Command *command, char *argument)
+{
+	++(command->argc);
+
+	// Command name + Args + Null.
+	size_t size = (command->argc + 2) * sizeof(char *);
+	
+	realloc(command->args, size);
+
+	STRING_COPY(command->args[command->argc], argument);
+	command->args[command->argc + 1] = NULL;
+}
+
 int main(int argc, char* argv[])
 {
+	Config config = {};
+	config.voice_on = true;
+
+	init_command(&config.music_on, "mpc");
+	add_argument(&config.music_on, "play");
+
+	init_command(&config.music_off, "mpc");
+	add_argument(&config.music_off, "stop");
+
+	
 	Program program = {};
 
 	// chest
@@ -195,18 +261,18 @@ int main(int argc, char* argv[])
 	{
 		Exercise *current_exercise = program.all_exercises + program.current_exercise++;
 
-		festival_say(current_exercise->name);
+		festival_say(&config, current_exercise->name);
 		while (current_exercise->current_series++ < current_exercise->series_count)
 		{
-			festival_say("Ready");
+			festival_say(&config, "Ready");
 			sleep(3);
-			festival_say("Go");
+			festival_say(&config, "Go");
 
 			if (current_exercise->duration)
 			{
 				wait_and_print_chrono(current_exercise->duration);
 				
-				festival_say("Stop");
+				festival_say(&config, "Stop");
 			}
 			else
 			{
@@ -218,17 +284,15 @@ int main(int argc, char* argv[])
 			if (!((program.current_exercise == program.exercise_count) &&
 				  (current_exercise->current_series == current_exercise->series_count)))
 			{
-				festival_say("Pause");
+				festival_say(&config, "Pause");
 
-				wait_and_print_chrono(current_exercise->pause_duration);
-
-				printf("\r\033[K");
+				wait_and_print_chrono(current_exercise->pause_duration);				
 			}
 		}
 	}
 
-	festival_say("Finished! Congratulations!");
-	festival_say("Now, go take a shower.");
+	festival_say(&config, "Finished! Congratulations!");
+	festival_say(&config, "Now, go take a shower.");
 			
 	return 0;
 }

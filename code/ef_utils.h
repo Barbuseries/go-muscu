@@ -70,6 +70,15 @@ typedef int			b32;
 													\
 	}while (0)
 
+#define STRING_COPY(dest, src) STRING_N_COPY(dest, src, strlen(src))
+
+#define STRING_N_COPY(dest, src, n)do			\
+	{											\
+		dest = (char *) malloc(n + 1);			\
+		strcpy(dest, src);						\
+		dest[n] = '\0';							\
+	} while(0)
+
 // Debug
 #if EF_DEBUG
 #define ASSERT(expression)	do										\
