@@ -75,7 +75,7 @@ typedef int			b32;
 #define STRING_N_COPY(dest, src, n)do			\
 	{											\
 		dest = (char *) malloc(n + 1);			\
-		strcpy(dest, src);						\
+		strncpy(dest, src, n);					\
 		dest[n] = '\0';							\
 	} while(0)
 
