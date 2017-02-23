@@ -245,6 +245,12 @@ char *skip_space(char *s)
 	return s;
 }
 
+inline b32 same_string(char *a, char *b, size_t len_b)
+{
+	return ((strlen(a) == len_b) &&
+			(strncmp(a, b, len_b) == 0));
+}
+
 int parse_command(Command *command, char *line, size_t line_len)
 {
 	if (!line_len)
@@ -340,7 +346,7 @@ int parse_config_file(char *filename, Config *config)
 			continue;
 		}
 
-		if (strncmp("voice", left_side, len_left_side) == 0)
+		if (same_string("voice", left_side, len_left_side))
 		{
 			if (strcmp(right_side, "on") == 0)
 			{
@@ -357,11 +363,11 @@ int parse_config_file(char *filename, Config *config)
 				++num_errors;
 			}
 		}
-		else if (strncmp("music_on", left_side, len_left_side) == 0)
+		else if (same_string("music_on", left_side, len_left_side))
 		{
 			parse_command(&config->music_on, right_side, len_right_side);
 		}
-		else if (strncmp("music_off", left_side, len_left_side) == 0)
+		else if (same_string("music_off", left_side, len_left_side))
 		{
 			parse_command(&config->music_off, right_side, len_right_side);
 		}
