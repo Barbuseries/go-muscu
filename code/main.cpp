@@ -5,11 +5,11 @@
 #include "ef_utils.h"
 
 // TODO: Implement configuration files:
-// 
+//
 //         - One for the general configuration:
 //           - Default exercise/program?
 //           - Other text-to-speech program. (Not a priority)
-//           
+//
 //         - One for each exercise/program
 //           - Syntax:
 //             EXERCISE_NAME
@@ -17,7 +17,7 @@
 //
 //             EXERCISE_NAME
 //             ...
-//             
+//
 //           - If NAME starts with a '@', it's a reference to another
 //             exercise.
 //             That way, one can do this:
@@ -38,7 +38,7 @@
 struct Exercise
 {
 	char name[64];
-	
+
     u8 series_count;
 	u8 current_series;
 
@@ -50,15 +50,13 @@ struct Program
 {
     Exercise all_exercises[42];
 	u8 exercise_count;
-	
+
 	u8 current_exercise;
 };
 
 struct Command
 {
-    char *name;
-	
-	char **args;
+	char **argv;
 	i32 argc;
 };
 
@@ -74,13 +72,13 @@ void set_music(Config *config, b32 on)
 {
 	Command *music_command = (on) ? &config->music_on : &config->music_off;
 
-	if (music_command->name == NULL)
+	if (!music_command->argc)
 	{
 		return;
 	}
-	
+
 	pid_t child_pid;
-	
+
 	switch(child_pid = fork())
 	{
 		case -1:
@@ -88,7 +86,7 @@ void set_music(Config *config, b32 on)
 			perror("music");
 			return;
 		}
-		
+
 		case 0:
 		{
 			int fd;
@@ -104,11 +102,11 @@ void set_music(Config *config, b32 on)
 
 			close(fd);
 
-			execvp(music_command->name, music_command->args);
+			execvp(music_command->argv[0], music_command->argv);
 			perror("music");
 
 			return;
-		}		
+		}
 
 		default:
 		{
@@ -125,9 +123,9 @@ int festival_say(Config *config, char *text)
 
 		return 0;
 	}
-	
+
 	int pipe_fd[2];
-		
+
 	if (pipe(pipe_fd) == -1)
 	{
 		perror("pipe");
@@ -135,7 +133,7 @@ int festival_say(Config *config, char *text)
 	}
 
 	set_music(config, 0);
-	
+
 	pid_t child_pid;
 
 	switch (child_pid = fork())
@@ -145,18 +143,18 @@ int festival_say(Config *config, char *text)
 			perror("fork");
 			return -2;
 		}
-		
+
 		case 0:
 		{
 			close(pipe_fd[1]);
-				
+
 			dup2(pipe_fd[0], STDIN_FILENO);
 			close(pipe_fd[0]);
 
 			execlp("festival", "festival", "--tts", NULL);
-				
+
 			perror("festival");
-					
+
 			return 1;
 		}
 
@@ -167,16 +165,16 @@ int festival_say(Config *config, char *text)
 			char buffer[255];
 			int num_written = snprintf(buffer, sizeof(buffer) - 1, "%s\n", text);
 			buffer[num_written] = '\0';
-				
+
 			write(pipe_fd[1], buffer, num_written + 1);
 			close(pipe_fd[1]);
-					
+
 			printf("%s", buffer);
-				
+
 			waitpid(child_pid, NULL, 0);
 		}
 	}
-	
+
 	set_music(config, 1);
 
 	return 0;
@@ -185,7 +183,7 @@ int festival_say(Config *config, char *text)
 void wait_and_print_chrono(int seconds)
 {
 	int time_in_cs = seconds * 100;
-					
+
 	for (int i = time_in_cs; i > 0; --i)
 	{
 		printf("%.02fs\r", 0.01f * i);
@@ -201,7 +199,7 @@ void add_exercise(Program *program, char *name, u8 series_count, i32 duration, i
 	ASSERT(program->exercise_count < ARRAY_SIZE(program->all_exercises));
 
 	Exercise *exercise = program->all_exercises + program->exercise_count++;
-	
+
 	strncpy(exercise->name, name, MIN(sizeof(exercise->name) - 1, strlen(name)));
 	exercise->series_count = series_count;
 	exercise->duration = duration;
@@ -210,27 +208,25 @@ void add_exercise(Program *program, char *name, u8 series_count, i32 duration, i
 
 void init_command(Command *command, char *name, size_t name_len)
 {
-	STRING_N_COPY(command->name, name, name_len);
+	command->argc = 1;
+	
+	command->argv = (char **) malloc(2 * sizeof(char *));
+	STRING_N_COPY(command->argv[0], name, name_len);
 
-	command->argc = 0;
-	
-	command->args = (char **) malloc(2 * sizeof(char *));
-	STRING_N_COPY(command->args[0], name, name_len);
-	
-	command->args[1] = NULL;
+	command->argv[1] = NULL;
 }
 
 void add_argument(Command *command, char *argument, size_t argument_len)
 {
 	++(command->argc);
 
-	// Command name + Args + Null.
-	size_t size = (command->argc + 2) * sizeof(char *);
-	
-	command->args = (char **) realloc(command->args, size);
+	// [Command name + args] + NULL.
+	size_t size = (command->argc + 1) * sizeof(char *);
 
-	STRING_N_COPY(command->args[command->argc], argument, argument_len);
-	command->args[command->argc + 1] = NULL;
+	command->argv = (char **) realloc(command->argv, size);
+
+	STRING_N_COPY(command->argv[command->argc - 1], argument, argument_len);
+	command->argv[command->argc] = NULL;
 }
 
 char *skip_space(char *s)
@@ -269,7 +265,7 @@ int parse_command(Command *command, char *line, size_t line_len)
 	{
 		command_len = space_pos - line;
 	}
-			
+
 	init_command(command, line, command_len);
 
 	char *start_line = line;
@@ -280,7 +276,7 @@ int parse_command(Command *command, char *line, size_t line_len)
 		space_pos = strchr(line, ' ');
 
 		size_t argument_len;
-				
+
 		if (!space_pos)
 		{
 			argument_len = line_len - (line - start_line);
@@ -289,7 +285,7 @@ int parse_command(Command *command, char *line, size_t line_len)
 		{
 			argument_len = space_pos - line;
 		}
-				
+
 		add_argument(command, line, argument_len);
 	}
 
@@ -299,7 +295,7 @@ int parse_command(Command *command, char *line, size_t line_len)
 int parse_config_file(char *filename, Config *config)
 {
 	FILE *file;
-	
+
 	if (!(file = fopen(filename, "r")))
 	{
 		return -1;
@@ -309,7 +305,7 @@ int parse_config_file(char *filename, Config *config)
 	char buffer[255];
 	int num_errors = 0;
 
-	// Use fgets to read stop reading after a '\n'.
+	// Use fgets to stop reading after a '\n'.
 	// It also null-terminates the buffer.
 	while (fgets(buffer, sizeof(buffer), file))
 	{
@@ -328,7 +324,7 @@ int parse_config_file(char *filename, Config *config)
 			 *right_side = equal_sign_pos + 1;
 
 		right_side = skip_space(right_side);
-		
+
 		int len_left_side = equal_sign_pos - left_side;
 		int len_right_side = strlen(right_side);
 
@@ -391,7 +387,7 @@ int main(int argc, char* argv[])
 
 	char config_file[256];
 	char *home_dir = NULL;
-	
+
 	if ((home_dir = getenv("XDG_CONFIG_HOME")) != NULL)
 	{
 		sprintf(config_file, "%s/%s/%s.conf", home_dir, PROGRAM, PROGRAM);
@@ -405,13 +401,19 @@ int main(int argc, char* argv[])
 	{
 		// I have no idea where the config file is located.
 	}
-	
+
 	if (parse_config_file(config_file, &config) != 0)
 	{
 		// Shh...
 	}
-	
+
 	Program program = {};
+
+	// abdo
+	add_exercise(&program, "Legs-up (12 reps)", 3, 0, 60);
+	add_exercise(&program, "Legs-side (20 reps)", 3, 0, 60);
+	add_exercise(&program, "Plank (for 60 seconds)", 3, 60, 60);
+	add_exercise(&program, "Elbow-to-knee (30 reps)", 3, 0, 45);
 
 	// chest
 	add_exercise(&program, "Push-ups", 3, 0, 90);
@@ -419,18 +421,12 @@ int main(int argc, char* argv[])
 	add_exercise(&program, "Mixte push-ups", 3, 0, 90);
 	add_exercise(&program, "Indian push-ups", 3, 60, 60);
 
-	// abdo
-	add_exercise(&program, "Legs-up", 3, 0, 60);
-	add_exercise(&program, "Legs-side", 3, 0, 60);
-	add_exercise(&program, "Plank", 3, 60, 60);
-	add_exercise(&program, "Elbow-to-knee", 3, 0, 45);
-
 	// There is no use in muting, is there?
 	if (!config.voice_on)
 	{
 		set_music(&config, 1);
 	}
-	
+
 	while (program.current_exercise < program.exercise_count)
 	{
 		Exercise *current_exercise = program.all_exercises + program.current_exercise++;
@@ -445,13 +441,13 @@ int main(int argc, char* argv[])
 			if (current_exercise->duration)
 			{
 				wait_and_print_chrono(current_exercise->duration);
-				
+
 				festival_say(&config, "Stop");
 			}
 			else
 			{
-				printf("Waiting for input...\n");
-				
+				printf("Press ENTER once you are done...\n");
+
 				getchar();
 			}
 
@@ -460,13 +456,13 @@ int main(int argc, char* argv[])
 			{
 				festival_say(&config, "Pause");
 
-				wait_and_print_chrono(current_exercise->pause_duration);				
+				wait_and_print_chrono(current_exercise->pause_duration);
 			}
 		}
 	}
 
 	festival_say(&config, "Finished! Congratulations!");
 	festival_say(&config, "Now, go take a shower.");
-			
+
 	return 0;
 }
