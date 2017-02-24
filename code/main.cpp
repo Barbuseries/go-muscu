@@ -233,7 +233,7 @@ char *skip_space(char *s)
 {
 	char c;
 	while ((c = *s) &&
-		   (c == ' '))
+		   ((c == ' ') || (c == '\t')))
 	{
 		++s;
 	}
@@ -309,6 +309,23 @@ int parse_config_file(char *filename, Config *config)
 	// It also null-terminates the buffer.
 	while (fgets(buffer, sizeof(buffer), file))
 	{
+		if (*buffer == '\n')
+		{
+			continue;
+		}
+		
+		char *comment_start_pos = strchr(buffer, '#');
+
+		if (comment_start_pos)
+		{
+			if (comment_start_pos == buffer)
+			{
+				continue;
+			}			
+			
+			*comment_start_pos = '\0';
+		}
+
 		// Syntax: <left>=<right> (right can contain spaces).
 		char *equal_sign_pos = strchr(buffer, '=');
 
@@ -333,6 +350,17 @@ int parse_config_file(char *filename, Config *config)
 			right_side[len_right_side -1] = '\0';
 			--len_right_side;
 		}
+
+		char *end_right_side = right_side + len_right_side - 1;
+
+		// Skip trailing spaces, for editing convenience.
+		while ((end_right_side >= right_side) &&
+			   ((*end_right_side == ' ') || (*end_right_side == '\t')))
+		{
+			--end_right_side;
+		}
+
+		*(end_right_side + 1) = '\0';
 
 		if (len_left_side == 0)
 		{
