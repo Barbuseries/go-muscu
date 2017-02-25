@@ -9,6 +9,7 @@
 // TODO: Implement configuration files:
 //
 //         - One for the general configuration:
+//           - Allow use of (double-)quotes.
 //           - Default exercise/program?
 //           - Other text-to-speech program. (Not a priority)
 //
@@ -93,28 +94,27 @@ struct Command
 
 struct Config
 {
-	Command music_on,
+	Command music_init,
+		    music_on,
 		    music_off;
 
     b32 voice_on;
 };
 
-internal void set_music(Config *config, b32 on)
+internal void child_silent_exec(Command *command)
 {
-	Command *music_command = (on) ? &config->music_on : &config->music_off;
-
-	if (!music_command->argc)
+	if (!command->argc)
 	{
 		return;
 	}
-
+	
 	pid_t child_pid;
 
 	switch(child_pid = fork())
 	{
 		case -1:
 		{
-			perror("music");
+			perror(command->argv[0]);
 			return;
 		}
 
@@ -133,7 +133,7 @@ internal void set_music(Config *config, b32 on)
 
 			close(fd);
 
-			execvp(music_command->argv[0], music_command->argv);
+			execvp(command->argv[0], command->argv);
 			perror("music");
 
 			return;
@@ -144,6 +144,13 @@ internal void set_music(Config *config, b32 on)
 			waitpid(child_pid, NULL, 0);
 		}
 	}
+}
+
+internal void set_music(Config *config, b32 on)
+{
+	Command *music_command = (on) ? &config->music_on : &config->music_off;
+
+	child_silent_exec(music_command);
 }
 
 internal int festival_say(Config *config, char *text)
@@ -421,6 +428,10 @@ internal int parse_config_file(char *filename, Config *config)
 				++num_errors;
 			}
 		}
+		else if (same_string("music_init", left_side, len_left_side))
+		{
+			parse_command(&config->music_init, right_side, len_right_side);
+		}
 		else if (same_string("music_on", left_side, len_left_side))
 		{
 			parse_command(&config->music_on, right_side, len_right_side);
@@ -543,12 +554,14 @@ int main(int argc, char* argv[])
 
 	if (music_off)
 	{
-		config.music_on.argc  = 0;
-		config.music_off.argc = 0;
+		config.music_init.argc = 0;
+		config.music_on.argc   = 0;
+		config.music_off.argc  = 0;
 	}
 
 	Program program = {};
 
+	// TODO: This will be described in a program file.
 	// abdo
 	add_exercise(&program, "Legs-up (12 reps)", 3, 0, 60);
 	add_exercise(&program, "Legs-side (20 reps)", 3, 0, 60);
@@ -560,6 +573,9 @@ int main(int argc, char* argv[])
 	add_exercise(&program, "Jumping push-ups", 3, 0, 90);
 	add_exercise(&program, "Mixte push-ups", 3, 0, 90);
 	add_exercise(&program, "Indian push-ups", 3, 60, 60);
+
+
+	child_silent_exec(&config.music_init);
 
 	// There is no use in muting, is there?
 	if (!config.voice_on)
