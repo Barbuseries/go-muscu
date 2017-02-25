@@ -14,11 +14,13 @@ all: $(AOUT)
 $(AOUT): $(OBJS)
 	$(CC) $(LDFLAGS) -o $@ $^
 
-$(BUILD_DIR)%.o: %.cpp %.h ef_utils.h
+$(BUILD_DIR)%.o: %.cpp %.h ef_utils.h common.h
 	$(CC) $(CFLAGS) -o $@ -c $<
 
-$(BUILD_DIR)%.o: %.cpp ef_utils.h
+$(BUILD_DIR)%.o: %.cpp ef_utils.h common.h
 	$(CC) $(CFLAGS) -o $@ -c $<
+
+$(BUILD_DIR)main.o: parsing.h
 
 clean:
 	@rm $(BUILD_DIR)*
