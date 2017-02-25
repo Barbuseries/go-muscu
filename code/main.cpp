@@ -13,14 +13,6 @@
 //           - Default exercise/program?
 //           - Other text-to-speech program. (Not a priority)
 //
-//         - One for each exercise/program
-//           - If NAME starts with a '@', it's a reference to another
-//             program.
-//             That way, one can do this:
-//               @chest
-//               @back
-//               ...
-//
 //      Add command-line options:
 //
 //        - Start a series of exercises, programs
@@ -100,7 +92,14 @@ struct Config
     b32 voice_on;
 };
 
-internal void child_silent_exec(Command *command)
+enum ChildExecFlag
+{
+	CHILD_EXEC_VERBOSE   = 1 << 0,
+	CHILD_EXEC_NO_STDOUT = 1 << 1,
+	CHILD_EXEC_NO_STDERR = 1 << 2,
+};
+
+internal void child_exec(Command *command, int flags = CHILD_EXEC_VERBOSE)
 {
 	if (!command->argc)
 	{
@@ -119,23 +118,31 @@ internal void child_silent_exec(Command *command)
 
 		case 0:
 		{
-			int fd;
-
-			if ((fd = open("/dev/null", O_WRONLY)) == -1)
+			if (!(flags & CHILD_EXEC_VERBOSE))
 			{
-				perror("/dev/null");
-				return;
+				int fd;
+
+				if ((fd = open("/dev/null", O_WRONLY)) == -1)
+				{
+					perror("/dev/null");
+					return;
+				}
+
+				(flags & CHILD_EXEC_NO_STDOUT) ? dup2(fd, STDOUT_FILENO) : 0;
+				(flags & CHILD_EXEC_NO_STDERR) ? dup2(fd, STDERR_FILENO) : 0;
+
+				close(fd);
 			}
 
-			dup2(fd, STDOUT_FILENO);
-			dup2(fd, STDERR_FILENO);
-
-			close(fd);
-
 			execvp(command->argv[0], command->argv);
-			perror(command->argv[0]);
 
-			return;
+			char buffer[255];
+			int num_written = snprintf(buffer, sizeof(buffer) - 1, "%s: command '%s'", PROGRAM, command->argv[0]);
+			buffer[num_written] = '\0';
+			
+			perror(buffer);
+			
+			exit(1);
 		}
 
 		default:
@@ -149,7 +156,7 @@ internal void set_music(Config *config, b32 on)
 {
 	Command *music_command = (on) ? &config->music_on : &config->music_off;
 
-	child_silent_exec(music_command);
+	child_exec(music_command, CHILD_EXEC_NO_STDOUT);
 }
 
 internal int festival_say(Config *config, char *text)
@@ -192,7 +199,7 @@ internal int festival_say(Config *config, char *text)
 
 			perror("festival");
 
-			return 1;
+			exit(1);
 		}
 
 		default:
@@ -296,6 +303,38 @@ internal inline b32 same_string(char *a, char *b, size_t len_b)
 {
 	return ((strlen(a) == len_b) &&
 			(strncmp(a, b, len_b) == 0));
+}
+
+// NOTE: Modify path given.
+internal char *dirname(char *path)
+{
+	size_t len_path = strlen(path);
+
+	if (len_path < 2)
+	{
+		return path;
+	}
+	
+	char *s  = path + len_path - 1;
+
+	while((s > path) &&
+		  (*s != '/'))
+	{
+		--s;
+	}
+
+	if ((s != path) ||
+		((s == path) && (*s == '/')))
+	{
+		*s = '\0';
+	}
+	else
+	{
+		*s       = '.';
+		*(s + 1) = '\0';
+	}
+
+	return path;
 }
 
 internal int parse_command(Command *command, char *line, size_t line_len)
@@ -464,9 +503,8 @@ internal int parse_config_file(char *filename, Config *config)
 	return num_errors;
 }
 
-// TODO: Take an array of programs and a program index.
-//       Implement '@' syntax (see TODO at top).
-internal int parse_program_file(char *filename, Program *program)
+internal int parse_program_file(char *filename, Program *all_programs,
+								int *program_count, int max_program_count)
 {
 	FILE *file;
 	char *base_filename = basename(filename);
@@ -481,6 +519,24 @@ internal int parse_program_file(char *filename, Program *program)
 #define PARSING_NAME       0
 #define PARSING_PROPERTIES 1
 #define PARSING_END        2
+
+#define PROGRAM_TYPE_UNKNOWN   0
+#define PROGRAM_TYPE_SELF      1
+#define PROGRAM_TYPE_REFERENCE 2
+
+	if ((*program_count) == max_program_count)
+	{
+		fprintf(stderr, "%s: %s: exceeding maximum program count.\n", PROGRAM, base_filename);
+		return 1;
+	}
+
+	// In case a reference to a program is in there.
+	char dir_filename[256];
+	size_t actual_dir_len = MIN(ARRAY_SIZE(dir_filename) - 1, strlen(filename));
+	
+	strncpy(dir_filename, filename, actual_dir_len);
+	dir_filename[actual_dir_len] = '\0';
+	dirname(dir_filename);
 	
 	char padded_buffer[256],
 		 *buffer;
@@ -488,7 +544,10 @@ internal int parse_program_file(char *filename, Program *program)
 
 	int error_count = 0; 
 
+	Program *program = all_programs + (*program_count)++;
 	Exercise *new_exercise = program->all_exercises + program->current_exercise;
+
+	int program_file_type = PROGRAM_TYPE_UNKNOWN;
 
 	// Syntax:
     //  EXERCISE_NAME
@@ -496,10 +555,27 @@ internal int parse_program_file(char *filename, Program *program)
     //
     //  EXERCISE_NAME
     //  ...
+	//
+	// OR
+	// 
+	// @PROGRAM_NAME
+	// ...
 	while (fgets(padded_buffer, sizeof(padded_buffer), file))
 	{
 		buffer = skip_space(padded_buffer);
-		
+
+		char *comment_start_pos = strchr(buffer, '#');
+
+		if (comment_start_pos)
+		{
+			if (comment_start_pos == buffer)
+			{
+				continue;
+			}			
+			
+			*comment_start_pos = '\0';
+		}
+	
 		if (*buffer == '\n')
 		{
 			if (parsing_type == PARSING_PROPERTIES)
@@ -564,6 +640,67 @@ internal int parse_program_file(char *filename, Program *program)
 							buffer, ARRAY_SIZE(new_exercise->name) - 1);
 				}
 
+				// Refrence to another program file.
+				if (buffer[0] == '@')
+				{
+					switch (program_file_type)
+					{
+						case PROGRAM_TYPE_UNKNOWN: { program_file_type = PROGRAM_TYPE_REFERENCE; } break;
+						case PROGRAM_TYPE_SELF:
+						{
+							fprintf(stderr, "%s: %s: mixing references and non references is not allowed.\n",
+									PROGRAM, base_filename);
+
+							++error_count;
+
+							return error_count;
+						}
+						default:
+						{
+							break;
+						}
+					}
+					
+					++buffer;
+					--len_buffer;
+
+					char program_file_name[256];
+					snprintf(program_file_name, sizeof(program_file_name) - 1,
+							 "%s/%.*s", dir_filename, (int) len_buffer, buffer);
+					
+					int program_error_count = parse_program_file(program_file_name, all_programs,
+																 program_count, max_program_count);
+
+					if (program_error_count)
+					{
+						--program_count;
+					}
+					
+					error_count += program_error_count;
+
+					parsing_type = PARSING_NAME;
+					continue;
+				}
+
+				// Self contained description of exercises.
+				switch (program_file_type)
+				{
+					case PROGRAM_TYPE_UNKNOWN: { program_file_type = PROGRAM_TYPE_SELF; } break;
+					case PROGRAM_TYPE_REFERENCE:
+					{
+						fprintf(stderr, "%s: %s: mixing references and non references is not allowed.\n",
+								PROGRAM, base_filename);
+
+						++error_count;
+
+						return error_count;
+					}
+					default:
+					{
+						break;
+					}
+				}
+				
 				size_t actual_len = MIN(ARRAY_SIZE(new_exercise->name) - 1, len_buffer);
 				strncpy(new_exercise->name, buffer, actual_len);
 				new_exercise->name[actual_len] = '\0';
@@ -641,6 +778,10 @@ internal int parse_program_file(char *filename, Program *program)
 		++program->exercise_count;
 	}
 
+#undef PROGRAM_TYPE_UNKNOWN
+#undef PROGRAM_TYPE_SELF
+#undef PROGRAM_TYPE_REFERENCE
+	
 #undef PARSING_NAME
 #undef PARSING_PROPERTIES
 #undef PARSING_END
@@ -655,7 +796,8 @@ int main(int argc, char* argv[])
 		check_config    = false,
 		voice_off       = false,
 		music_off       = false;
-	
+
+	// TODO: Allow multiple programs.
 	char program_name[256];
 	program_name[0] = '\0';
 	
@@ -801,8 +943,9 @@ int main(int argc, char* argv[])
 		config.music_off.argc  = 0;
 	}
 
-	Program program = {};
-
+	Program all_programs[10] = {};
+	int program_count = 0;
+	
 	char full_program_path[256];
 
 	if (program_name[0] != '\0')
@@ -813,14 +956,13 @@ int main(int argc, char* argv[])
 	{
 		sprintf(full_program_path, "%s/programs/%s", program_dir, config.default_program);
 	}
-	
 
-	if (parse_program_file(full_program_path, &program) != 0)
+	if (parse_program_file(full_program_path, all_programs, &program_count, ARRAY_SIZE(all_programs)) != 0)
 	{
 		return 1;
 	}
 
-	child_silent_exec(&config.music_init);
+	child_exec(&config.music_init, CHILD_EXEC_NO_STDOUT);
 
 	// There is no use in muting, is there?
 	if (!config.voice_on)
@@ -828,39 +970,46 @@ int main(int argc, char* argv[])
 		set_music(&config, 1);
 	}
 
-	while (program.current_exercise < program.exercise_count)
+	for (int i = 0; i < program_count; ++i)
 	{
-		Exercise *current_exercise = program.all_exercises + program.current_exercise++;
+		Program *program = all_programs + i;
 
-		festival_say(&config, current_exercise->name);
-		while (current_exercise->current_series++ < current_exercise->series_count)
+		while (program->current_exercise < program->exercise_count)
 		{
-			festival_say(&config, "Ready");
-			sleep(3);
-			festival_say(&config, "Go");
+			Exercise *current_exercise = program->all_exercises + program->current_exercise++;
 
-			if (current_exercise->duration)
+			festival_say(&config, current_exercise->name);
+			while (current_exercise->current_series++ < current_exercise->series_count)
 			{
-				wait_and_print_chrono(current_exercise->duration);
+				festival_say(&config, "Ready");
+				sleep(3);
+				festival_say(&config, "Go");
 
-				festival_say(&config, "Stop");
-			}
-			else
-			{
-				printf("Press ENTER once you are done...\n");
+				if (current_exercise->duration)
+				{
+					wait_and_print_chrono(current_exercise->duration);
 
-				getchar();
-			}
+					festival_say(&config, "Stop");
+				}
+				else
+				{
+					printf("Press ENTER once you are done...\n");
 
-			if (!((program.current_exercise == program.exercise_count) &&
-				  (current_exercise->current_series == current_exercise->series_count)))
-			{
-				festival_say(&config, "Pause");
+					getchar();
+				}
 
-				wait_and_print_chrono(current_exercise->pause_duration);
+				if (!((program->current_exercise == program->exercise_count) &&
+					  (current_exercise->current_series == current_exercise->series_count)))
+				{
+					festival_say(&config, "Pause");
+
+					wait_and_print_chrono(current_exercise->pause_duration);
+				}
 			}
 		}
 	}
+	
+	
 
 	festival_say(&config, "Finished! Congratulations!");
 	festival_say(&config, "Now, go take a shower.");
