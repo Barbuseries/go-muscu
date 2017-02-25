@@ -14,15 +14,8 @@
 //           - Other text-to-speech program. (Not a priority)
 //
 //         - One for each exercise/program
-//           - Syntax:
-//             EXERCISE_NAME
-//             SERIES PAUSE_DURATION or SERIES DURATION PAUSE_DURATION
-//
-//             EXERCISE_NAME
-//             ...
-//
 //           - If NAME starts with a '@', it's a reference to another
-//             exercise.
+//             program.
 //             That way, one can do this:
 //               @chest
 //               @back
@@ -50,7 +43,11 @@ static char usage[] =
 	"Options:\n"
 	"      --help         Show this (hopefully) helpful message.\n"
 	"      --version      Show this program's version.\n"
+	"\n"
 	"      --check-config Read config file and exit.\n"
+	"\n"
+	"  -p, --program NAME Which program to start.\n"
+	"\n"
 	"  -V, --voice-off    Do not use text-to-speech.\n"
 	"  -M, --music-off    Do not play music.\n"
 };
@@ -74,8 +71,8 @@ struct Exercise
     u8 series_count;
 	u8 current_series;
 
-	i32 duration;
-	i32 pause_duration;
+	u16 duration;
+	u16 pause_duration;
 };
 
 struct Program
@@ -94,6 +91,8 @@ struct Command
 
 struct Config
 {
+	char default_program[ARRAY_SIZE(((Exercise *) 0)->name)];
+	
 	Command music_init,
 		    music_on,
 		    music_off;
@@ -238,7 +237,10 @@ internal void add_exercise(Program *program, char *name, u8 series_count, i32 du
 
 	Exercise *exercise = program->all_exercises + program->exercise_count++;
 
-	strncpy(exercise->name, name, MIN(sizeof(exercise->name) - 1, strlen(name)));
+	size_t actual_len = MIN(ARRAY_SIZE(exercise->name) - 1, strlen(name));
+	strncpy(exercise->name, name, actual_len);
+	exercise->name[actual_len] = '\0';
+	
 	exercise->series_count = series_count;
 	exercise->duration = duration;
 	exercise->pause_duration = pause_duration;
@@ -277,6 +279,17 @@ internal char *skip_space(char *s)
 	}
 
 	return s;
+}
+
+internal char *skip_space_b(char *end, char *start)
+{
+	while ((end >= start) &&
+		   ((*end == ' ') || (*end == '\t')))
+	{
+		--end;
+	}
+
+	return end;
 }
 
 internal inline b32 same_string(char *a, char *b, size_t len_b)
@@ -382,7 +395,7 @@ internal int parse_config_file(char *filename, Config *config)
 
 		right_side = skip_space(right_side);
 
-		int len_left_side = equal_sign_pos - left_side;
+		size_t len_left_side = equal_sign_pos - left_side;
 
 		if (len_left_side == 0)
 		{
@@ -401,14 +414,8 @@ internal int parse_config_file(char *filename, Config *config)
 		}
 
 		char *end_right_side = right_side + len_right_side - 1;
-
-		// Skip trailing spaces, for editing convenience.
-		while ((end_right_side >= right_side) &&
-			   ((*end_right_side == ' ') || (*end_right_side == '\t')))
-		{
-			--end_right_side;
-		}
-
+		
+		end_right_side = skip_space_b(end_right_side, right_side);
 		*(end_right_side + 1) = '\0';
 
 		if (same_string("voice", left_side, len_left_side))
@@ -440,15 +447,205 @@ internal int parse_config_file(char *filename, Config *config)
 		{
 			parse_command(&config->music_off, right_side, len_right_side);
 		}
+		else if (same_string("default_program", left_side, len_left_side))
+		{
+			size_t actual_len = MIN(ARRAY_SIZE(config->default_program) - 1, len_left_side);
+			strncpy(config->default_program, right_side, actual_len);
+			config->default_program[actual_len] = '\0';
+		}
 		else
 		{
 			fprintf(stderr, "%s: config (line %d): unknown setting '%.*s'.\n",
-					PROGRAM, line_count, len_left_side, left_side);
+					PROGRAM, line_count, (int) len_left_side, left_side);
 			++num_errors;
 		}
 	}
 
 	return num_errors;
+}
+
+// TODO: Take an array of programs and a program index.
+//       Implement '@' syntax (see TODO at top).
+internal int parse_program_file(char *filename, Program *program)
+{
+	FILE *file;
+	char *base_filename = basename(filename);
+
+	if (!(file = fopen(filename, "r")))
+	{
+		fprintf(stderr, "%s: %s: no such program.\n", PROGRAM, base_filename);
+		return 1;
+	}
+
+	 
+#define PARSING_NAME       0
+#define PARSING_PROPERTIES 1
+#define PARSING_END        2
+	
+	char padded_buffer[256],
+		 *buffer;
+	int parsing_type = PARSING_NAME;
+
+	int error_count = 0; 
+
+	Exercise *new_exercise = program->all_exercises + program->current_exercise;
+
+	// Syntax:
+    //  EXERCISE_NAME
+    //  SERIES PAUSE_DURATION or SERIES DURATION PAUSE_DURATION
+    //
+    //  EXERCISE_NAME
+    //  ...
+	while (fgets(padded_buffer, sizeof(padded_buffer), file))
+	{
+		buffer = skip_space(padded_buffer);
+		
+		if (*buffer == '\n')
+		{
+			if (parsing_type == PARSING_PROPERTIES)
+			{
+				fprintf(stderr, "%s: %s: no properties given for exercise '%s'.\n",
+						PROGRAM, base_filename, new_exercise->name);
+				
+				parsing_type = PARSING_NAME;
+
+				++error_count;
+				
+				continue;
+			}
+			else if (parsing_type == PARSING_END)
+			{
+				++new_exercise;
+				++program->exercise_count;
+				parsing_type = PARSING_NAME;
+			}
+			else
+			{
+				// Skipping newlines in between exercises.
+			}
+			
+			continue;
+		}
+
+		switch (parsing_type)
+		{
+			case PARSING_NAME:
+			{
+				if (program->current_exercise == ARRAY_SIZE(program->all_exercises))
+				{
+					fprintf(stderr, "%s: %s: number of exercises per program excedeed.\n",
+							PROGRAM, base_filename);
+
+					++error_count;
+
+					return error_count;
+
+				}
+				
+				size_t len_buffer = strlen(buffer);
+
+				if (buffer[len_buffer - 1] == '\n')
+				{
+					buffer[len_buffer - 1] = '\0';
+					--len_buffer;
+				}
+				
+				char *end_buffer = buffer + len_buffer - 1;
+
+				end_buffer = skip_space_b(end_buffer, buffer);
+				*(++end_buffer) = '\0';
+
+				len_buffer = end_buffer - buffer;
+
+				if (len_buffer >= ARRAY_SIZE(new_exercise->name))
+				{
+					fprintf(stderr, "%s: %s: %.*s... is too long (max %zu characters), truncated...\n",
+							PROGRAM, base_filename, (int) (ARRAY_SIZE(new_exercise->name) - 3),
+							buffer, ARRAY_SIZE(new_exercise->name) - 1);
+				}
+
+				size_t actual_len = MIN(ARRAY_SIZE(new_exercise->name) - 1, len_buffer);
+				strncpy(new_exercise->name, buffer, actual_len);
+				new_exercise->name[actual_len] = '\0';
+
+				parsing_type = PARSING_PROPERTIES;
+		
+				break;
+			}
+
+			case PARSING_PROPERTIES:
+			{
+				char *start_number = buffer;
+				char *space_pos = strchr(start_number, ' ');
+
+				if (!space_pos)
+				{
+					fprintf(stderr, "%s: %s: missing pause duration for exercise '%s'.\n",
+							PROGRAM, base_filename, new_exercise->name);
+
+					parsing_type = PARSING_NAME;
+
+					++error_count;
+					
+					continue;
+				}
+
+				// TODO/FIXME: Use strtol instead of atoi (check for convertion success).
+				//             Check bounds for each value (< 0 and overflow).
+				
+				// Because atoi only takes null-terminated strings...
+				*space_pos = '\0';
+				new_exercise->series_count = atoi(start_number);
+
+				start_number = skip_space(space_pos + 1);
+
+				space_pos = strchr(start_number, ' ');
+				
+				// A duration for the exercise is given.
+				if (space_pos)
+				{
+					*space_pos = '\0';
+					new_exercise->duration = atoi(start_number);
+					
+					start_number = skip_space(space_pos + 1);
+
+					if (strchr(start_number, ' '))
+					{
+						fprintf(stderr, "%s: %s: too many properties for exercise '%s'.\n",
+								PROGRAM, base_filename, new_exercise->name);
+
+						parsing_type = PARSING_NAME;
+
+						++error_count;
+						
+						continue;
+					}
+				}
+
+				new_exercise->pause_duration = atoi(start_number);
+				
+				parsing_type = PARSING_END;
+				break;
+			}
+
+			default:
+			{
+				break;
+			}
+		}
+	}
+
+	// File may not end with a '\n'.
+	if (parsing_type == PARSING_END)
+	{
+		++program->exercise_count;
+	}
+
+#undef PARSING_NAME
+#undef PARSING_PROPERTIES
+#undef PARSING_END
+
+	return error_count;
 }
 
 int main(int argc, char* argv[])
@@ -459,14 +656,18 @@ int main(int argc, char* argv[])
 		voice_off       = false,
 		music_off       = false;
 	
+	char program_name[256];
+	program_name[0] = '\0';
+	
 	static struct option longOptions[] =
 		{
-			{"help"							, no_argument, &show_help, 1},
-			{"version"						, no_argument, &show_version, 1},
-			{"check-config"					, no_argument, &check_config, 1},
-			{"music-off"					, no_argument, 0, 'M'},
-			{"voice-off"					, no_argument, 0, 'V'},
-			{0								, 0, 0, 0}
+			{"help"			, no_argument,       &show_help, 1},
+			{"version"		, no_argument,       &show_version, 1},
+			{"check-config"	, no_argument,       &check_config, 1},
+			{"program"		, required_argument, 0, 'p'},
+			{"music-off"	, no_argument,       0, 'M'},
+			{"voice-off"	, no_argument,       0, 'V'},
+			{0				, 0,                 0, 0}
 		};
 
 	int c;
@@ -475,7 +676,8 @@ int main(int argc, char* argv[])
 	{
 		int option_index = 0;
 
-		c = getopt_long(argc, argv, "MV", longOptions, &option_index);
+		// Totaly not on purpose.
+		c = getopt_long(argc, argv, "MVp:", longOptions, &option_index);
 
 		if (c == -1)
 		{
@@ -490,6 +692,22 @@ int main(int argc, char* argv[])
 				{
 					break;
 				}
+			}
+			case 'p':
+			{
+				size_t program_len = strlen(optarg);
+				
+				if (program_len > (ARRAY_SIZE(program_name) - 1))
+				{
+					fprintf(stderr, "%s: -p/--program: name is too long (> %zu characters).\n",
+							PROGRAM, ARRAY_SIZE(program_name) - 1);
+					
+					return -1;
+				}
+				
+				strncpy(program_name, optarg, ARRAY_SIZE(program_name) - 1);
+				
+				break;
 			}
 
 			case 'V': { voice_off = true; } break;
@@ -512,24 +730,34 @@ int main(int argc, char* argv[])
 
 	Config config = {};
 
-	char config_file[256];
+	char config_file[256],
+		 program_dir[256];
+
+	config_file[0] = '\0';
+	program_dir[0] = '\0';
+	
 	char *home_dir = NULL;
 
 	if ((home_dir = getenv("XDG_CONFIG_HOME")) != NULL)
 	{
-		sprintf(config_file, "%s/%s/%s.conf", home_dir, PROGRAM, PROGRAM);
+		sprintf(program_dir, "%s/%s", home_dir, PROGRAM);
 	}
 	else if (((home_dir = getenv("HOME")) != NULL) ||
 			 ((home_dir = getpwuid(getuid())->pw_dir) != NULL))
 	{
-		sprintf(config_file, "%s/.config/%s/%s.conf", home_dir, PROGRAM, PROGRAM);
+		sprintf(program_dir, "%s/.config/%s", home_dir, PROGRAM);
 	}
 	else
 	{
 		// I have no idea where the config file is located.
 	}
 
-	int config_errors = parse_config_file(config_file, &config);
+	if (home_dir)
+	{
+		// TODO: Create program_dir if it does not already exist.
+		
+		sprintf(config_file, "%s/%s.conf", program_dir, PROGRAM);
+	}
 
 	if (check_config)
 	{
@@ -537,15 +765,29 @@ int main(int argc, char* argv[])
 		{
 			fprintf(stderr, "No config directory found.\n"
 					"Please, define either XDG_CONFIG_HOME or HOME.\n");
-			
+		
 			return 1;
 		}
 
-		printf("Total: %d error%s.\n", config_errors,
-			   (config_errors > 1) ? "s" : "");
+		printf("Reading '%s'...\n", config_file);
 		
+		int config_errors = parse_config_file(config_file, &config);
+
+		if (config_errors < 0)
+		{
+			printf("No config file found.\n");
+		}
+		else
+		{
+			printf("Total: %d error%s.\n", config_errors,
+				   (config_errors > 1) ? "s" : "");
+		}
+
 		return 0;
 	}
+
+	
+	parse_config_file(config_file, &config);
 
 	if (voice_off)
 	{
@@ -561,19 +803,22 @@ int main(int argc, char* argv[])
 
 	Program program = {};
 
-	// TODO: This will be described in a program file.
-	// abdo
-	add_exercise(&program, "Legs-up (12 reps)", 3, 0, 60);
-	add_exercise(&program, "Legs-side (20 reps)", 3, 0, 60);
-	add_exercise(&program, "Plank (for 60 seconds)", 3, 60, 60);
-	add_exercise(&program, "Elbow-to-knee (30 reps)", 3, 0, 45);
+	char full_program_path[256];
 
-	// chest
-	add_exercise(&program, "Push-ups", 3, 0, 90);
-	add_exercise(&program, "Jumping push-ups", 3, 0, 90);
-	add_exercise(&program, "Mixte push-ups", 3, 0, 90);
-	add_exercise(&program, "Indian push-ups", 3, 60, 60);
+	if (program_name[0] != '\0')
+	{
+		sprintf(full_program_path, "%s/programs/%s", program_dir, program_name);
+	}
+	else
+	{
+		sprintf(full_program_path, "%s/programs/%s", program_dir, config.default_program);
+	}
+	
 
+	if (parse_program_file(full_program_path, &program) != 0)
+	{
+		return 1;
+	}
 
 	child_silent_exec(&config.music_init);
 
