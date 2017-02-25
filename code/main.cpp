@@ -133,7 +133,7 @@ internal void child_silent_exec(Command *command)
 			close(fd);
 
 			execvp(command->argv[0], command->argv);
-			perror("music");
+			perror(command->argv[0]);
 
 			return;
 		}
