@@ -24,6 +24,8 @@ typedef double		r64;
 
 typedef int			b32;
 
+#define internal static
+
 // Utilities
 #define JOIN_HELPER(x, y) x ## y
 #define JOIN(x, y)        JOIN_HELPER(x, y)

@@ -2,6 +2,8 @@
 #include <wait.h>
 #include <fcntl.h>
 #include <pwd.h>
+#include <getopt.h>
+
 #include "ef_utils.h"
 
 // TODO: Implement configuration files:
@@ -27,13 +29,42 @@
 //
 //      Add command-line options:
 //
-//        - Override config file
 //        - Start a series of exercises, programs
 //        - Randomize? (program-wise, not exercise-wise)
 //
 //     Improve error messages!
 
 #define PROGRAM "go-muscu"
+
+#define MAJOR_VERSION 0
+#define MINOR_VERSION 1
+
+#define VERSION TO_STRING(JOIN3(MAJOR_VERSION, ., MINOR_VERSION))
+
+static char usage[] =
+{
+	"Usage: "
+	PROGRAM
+	" [OPTION ...]\n\n"
+	"Options:\n"
+	"      --help         Show this (hopefully) helpful message.\n"
+	"      --version      Show this program's version.\n"
+	"      --check-config Read config file and exit.\n"
+	"  -V, --voice-off    Do not use text-to-speech.\n"
+	"  -M, --music-off    Do not play music.\n"
+};
+
+static char version[] =
+{
+	PROGRAM
+	" "
+	VERSION
+	"\n\n"
+	"Copyright © 2017 Barbu\n"
+	"This work is free. You can redistribute it and/or modify it under the\n"
+	"terms of the Do What The Fuck You Want To Public License, Version 2,\n"
+	"as published by Sam Hocevar. See http://www.wtfpl.net/ for more details.\n"
+};
 
 struct Exercise
 {
@@ -68,7 +99,7 @@ struct Config
     b32 voice_on;
 };
 
-void set_music(Config *config, b32 on)
+internal void set_music(Config *config, b32 on)
 {
 	Command *music_command = (on) ? &config->music_on : &config->music_off;
 
@@ -115,7 +146,7 @@ void set_music(Config *config, b32 on)
 	}
 }
 
-int festival_say(Config *config, char *text)
+internal int festival_say(Config *config, char *text)
 {
 	if (!config->voice_on)
 	{
@@ -180,7 +211,7 @@ int festival_say(Config *config, char *text)
 	return 0;
 }
 
-void wait_and_print_chrono(int seconds)
+internal void wait_and_print_chrono(int seconds)
 {
 	int time_in_cs = seconds * 100;
 
@@ -194,7 +225,7 @@ void wait_and_print_chrono(int seconds)
 	printf("\r\033[K");
 }
 
-void add_exercise(Program *program, char *name, u8 series_count, i32 duration, i32 pause_duration)
+internal void add_exercise(Program *program, char *name, u8 series_count, i32 duration, i32 pause_duration)
 {
 	ASSERT(program->exercise_count < ARRAY_SIZE(program->all_exercises));
 
@@ -206,7 +237,7 @@ void add_exercise(Program *program, char *name, u8 series_count, i32 duration, i
 	exercise->pause_duration = pause_duration;
 }
 
-void init_command(Command *command, char *name, size_t name_len)
+internal void init_command(Command *command, char *name, size_t name_len)
 {
 	command->argc = 1;
 	
@@ -216,7 +247,7 @@ void init_command(Command *command, char *name, size_t name_len)
 	command->argv[1] = NULL;
 }
 
-void add_argument(Command *command, char *argument, size_t argument_len)
+internal void add_argument(Command *command, char *argument, size_t argument_len)
 {
 	++(command->argc);
 
@@ -229,7 +260,7 @@ void add_argument(Command *command, char *argument, size_t argument_len)
 	command->argv[command->argc] = NULL;
 }
 
-char *skip_space(char *s)
+internal char *skip_space(char *s)
 {
 	char c;
 	while ((c = *s) &&
@@ -241,13 +272,13 @@ char *skip_space(char *s)
 	return s;
 }
 
-inline b32 same_string(char *a, char *b, size_t len_b)
+internal inline b32 same_string(char *a, char *b, size_t len_b)
 {
 	return ((strlen(a) == len_b) &&
 			(strncmp(a, b, len_b) == 0));
 }
 
-int parse_command(Command *command, char *line, size_t line_len)
+internal int parse_command(Command *command, char *line, size_t line_len)
 {
 	if (!line_len)
 	{
@@ -292,7 +323,7 @@ int parse_command(Command *command, char *line, size_t line_len)
 	return 0;
 }
 
-int parse_config_file(char *filename, Config *config)
+internal int parse_config_file(char *filename, Config *config)
 {
 	FILE *file;
 
@@ -309,6 +340,8 @@ int parse_config_file(char *filename, Config *config)
 	// It also null-terminates the buffer.
 	while (fgets(buffer, sizeof(buffer), file))
 	{
+		++line_count;
+		
 		if (*buffer == '\n')
 		{
 			continue;
@@ -343,6 +376,15 @@ int parse_config_file(char *filename, Config *config)
 		right_side = skip_space(right_side);
 
 		int len_left_side = equal_sign_pos - left_side;
+
+		if (len_left_side == 0)
+		{
+			fprintf(stderr, "%s: config (line %d): invalid syntax.\n",
+					PROGRAM, line_count);
+			++num_errors;
+			continue;
+		}
+		
 		int len_right_side = strlen(right_side);
 
 		if (right_side[len_right_side -1] == '\n')
@@ -361,14 +403,6 @@ int parse_config_file(char *filename, Config *config)
 		}
 
 		*(end_right_side + 1) = '\0';
-
-		if (len_left_side == 0)
-		{
-			fprintf(stderr, "%s: config (line %d): invalid syntax.\n",
-					PROGRAM, line_count);
-			++num_errors;
-			continue;
-		}
 
 		if (same_string("voice", left_side, len_left_side))
 		{
@@ -401,8 +435,6 @@ int parse_config_file(char *filename, Config *config)
 					PROGRAM, line_count, len_left_side, left_side);
 			++num_errors;
 		}
-
-		++line_count;
 	}
 
 	return num_errors;
@@ -410,8 +442,64 @@ int parse_config_file(char *filename, Config *config)
 
 int main(int argc, char* argv[])
 {
+	int show_help		= false,
+		show_version	= false,
+		check_config    = false,
+		voice_off       = false,
+		music_off       = false;
+	
+	static struct option longOptions[] =
+		{
+			{"help"							, no_argument, &show_help, 1},
+			{"version"						, no_argument, &show_version, 1},
+			{"check-config"					, no_argument, &check_config, 1},
+			{"music-off"					, no_argument, 0, 'M'},
+			{"voice-off"					, no_argument, 0, 'V'},
+			{0								, 0, 0, 0}
+		};
+
+	int c;
+
+	for(;;)
+	{
+		int option_index = 0;
+
+		c = getopt_long(argc, argv, "MV", longOptions, &option_index);
+
+		if (c == -1)
+		{
+			break;
+		}
+
+		switch (c)
+		{
+			case 0:
+			{
+				if (longOptions[option_index].flag != 0)
+				{
+					break;
+				}
+			}
+
+			case 'V': { voice_off = true; } break;
+			case 'M': { music_off = true; } break;
+			
+			default:
+			{
+				return -1;
+				break;
+			}
+		}
+	}
+
+	if (show_help || show_version)
+	{
+		printf("%s", show_help ? usage : version);
+		
+		return 0;
+	}
+
 	Config config = {};
-	config.voice_on = true;
 
 	char config_file[256];
 	char *home_dir = NULL;
@@ -430,9 +518,33 @@ int main(int argc, char* argv[])
 		// I have no idea where the config file is located.
 	}
 
-	if (parse_config_file(config_file, &config) != 0)
+	int config_errors = parse_config_file(config_file, &config);
+
+	if (check_config)
 	{
-		// Shh...
+		if (!home_dir)
+		{
+			fprintf(stderr, "No config directory found.\n"
+					"Please, define either XDG_CONFIG_HOME or HOME.\n");
+			
+			return 1;
+		}
+
+		printf("Total: %d error%s.\n", config_errors,
+			   (config_errors > 1) ? "s" : "");
+		
+		return 0;
+	}
+
+	if (voice_off)
+	{
+		config.voice_on = false;
+	}
+
+	if (music_off)
+	{
+		config.music_on.argc  = 0;
+		config.music_off.argc = 0;
 	}
 
 	Program program = {};
