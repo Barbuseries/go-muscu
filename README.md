@@ -38,7 +38,7 @@ What comes after depends on the type of the exercise:
 
 * If it has no duration, it will prompt you to press `ENTER` once you
   have finished your repetitions;
-* Otherwhise, it will start counting down until the timer reaches zeros.
+* Otherwhise, it will start counting down until the timer reaches zero.
 
 In both cases, you will end up with a
 
