@@ -12,7 +12,7 @@ It speaks and plays music too.
 
 ```
 git clone https://github.com/Barbuseries/go-muscu
-cd go-muscu/code
+cd go-muscu
 make
 sudo make install
 ```
@@ -138,3 +138,19 @@ default_program=<program_name> (default workout program to start)
 ### Note ###
 
 Neither quotes (`'`) nor double-quotes (`"`) are currently supported.
+
+## Uninstallation ##
+
+```
+cd go-muscu
+sudo make uninstall
+```
+
+or
+
+```
+cd go-muscu
+sudo make purge
+```
+
+If you do not want to keep any configuration file or workout program.
