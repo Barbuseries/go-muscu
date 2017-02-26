@@ -133,7 +133,7 @@ music_on=<command>             (command to turn the music on (e.g: 'mpc play'))
 music_off=<command>            (command to turn the music off (e.g: 'mpc stop))
 music_init=<command>           (command run at the start of the session, in case you have a workout soundtrack)
 default_program=<program_name> (default workout program to start)
-setup_time=<time>              (time to wait between 'Ready' and 'Go')
+setup_time=<time>              (time, in seconds, to wait between 'Ready' and 'Go')
 ```
 
 ### Note ###
