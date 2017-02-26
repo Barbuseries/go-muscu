@@ -370,6 +370,11 @@ int main(int argc, char* argv[])
 		config.music_off.argc  = 0;
 	}
 
+	if (!config.setup_time)
+	{
+		config.setup_time = DEFAULT_SETUP_TIME;
+	}
+
 	Program all_programs[10] = {};
 	int program_count = 0;
 	
@@ -409,7 +414,9 @@ int main(int argc, char* argv[])
 			while (current_exercise->current_series++ < current_exercise->series_count)
 			{
 				festival_say(&config, "Ready");
-				sleep(3);
+				
+				wait_and_print_chrono(config.setup_time);
+				
 				festival_say(&config, "Go");
 
 				if (current_exercise->duration)

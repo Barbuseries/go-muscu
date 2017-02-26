@@ -5,6 +5,8 @@
 
 #define PROGRAM "go-muscu"
 
+#define DEFAULT_SETUP_TIME 3
+
 struct Exercise
 {
 	char name[64];
@@ -37,6 +39,8 @@ struct Config
 	Command music_init,
 		    music_on,
 		    music_off;
+
+	u8 setup_time;
 
     b32 voice_on;
 };

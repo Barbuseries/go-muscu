@@ -216,6 +216,12 @@ int parse_config_file(char *filename, Config *config)
 			strncpy(config->default_program, right_side, actual_len);
 			config->default_program[actual_len] = '\0';
 		}
+		else if (same_string("setup_time", left_side, len_left_side))
+		{
+			// TODO/FIXME: Use strtol instead of atoi (check for convertion success).
+			//             Check bounds for each value (< 0 and overflow).
+			config->setup_time = atoi(right_side);
+		}
 		else
 		{
 			fprintf(stderr, "%s: config (line %d): unknown setting '%.*s'.\n",
