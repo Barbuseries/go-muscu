@@ -30,3 +30,6 @@ run:
 
 runv:
 	valgrind ./$(AOUT)
+
+install:
+	@mkdir -p "${HOME}/.config/go-muscu/programs"
