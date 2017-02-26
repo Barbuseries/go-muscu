@@ -41,7 +41,7 @@ In both cases, you will end up with a
 
 `Pause`
 
-And a countdown timer corresponding to the exercice's pause duration.
+And a countdown timer corresponding to the exercise's pause duration.
 
 This will be repeated until all series have been done. At which point
 it will go to the next exercise.
@@ -58,10 +58,11 @@ directory
 A program's syntax is either
 
 ```
-<program_name>
+<exercise_name>
 <series_count> [<duration>] <pause_duration>
 ...
 ```
+(`[]` means *optional*)
 
 or
 
@@ -69,9 +70,6 @@ or
 @<program_name>
 ...
 ```
-
-(`[]` means *optional*)
-
 Where `<program_name>` is the name of another program.
 
 Note that this two syntaxes *can not* be used at the same time in the
@@ -109,7 +107,7 @@ this
 
 ### Note ###
 
-A program's name must not exceed 63 characters.
+An exercise's name must not exceed 63 characters.
 
 There is a limit of 42 exercises per program, and a limit of 10
 programs at the same time.
