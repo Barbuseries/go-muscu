@@ -17,9 +17,6 @@ make
 sudo make install
 ```
 
-Adding the executable to your `$BIN_HOME` must be done manually
-(it will *probably* be automated later on).
-
 ## Working out ##
 
 You can start your suffering by running
