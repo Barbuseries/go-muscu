@@ -9,11 +9,6 @@
 
 // TODO: Implement configuration files:
 //
-//       IMPORTANT: - Allow specifying (for exercises with a
-//       duration), the interval between each "milestone" (the program
-//       says a particular time has been reached): every 15 seconds,
-//       10 seconds, ...
-//       
 //         - One for the general configuration:
 //           - Allow use of (double-)quotes.
 //           - Default exercise/program?
