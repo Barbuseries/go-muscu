@@ -59,7 +59,7 @@ A program's syntax is either
 
 ```
 <exercise_name>
-<series_count> [<duration>] <pause_duration>
+<series_count> [<duration>] [<milestone>] <pause_duration>
 ...
 ```
 (`[]` means *optional*)
@@ -78,7 +78,8 @@ same program file.
 ### Example ###
 
 Let's say we want to do 10 times 10 Push-ups, then 5 times 20 Sit-ups
-and finally, 4 times a Plank for 60 seconds.
+and finally, 4 times a Plank for 60 seconds while being notified every
+15 seconds.
 
 For brevity, let's assume we rest for 90 seconds between each series.
 
@@ -93,7 +94,7 @@ Sit-ups (20 Reps)
 5 90
 
 Plank (hold for 60 seconds)
-4 60 90
+4 60 15 90
 ```
 
 Assuming this is saved as `weird_workout`, you could write another

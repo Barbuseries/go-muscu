@@ -168,12 +168,21 @@ int parse_config_file(char *filename, Config *config)
 			continue;
 		}
 		
-		int len_right_side = strlen(right_side);
+		size_t len_right_side = strlen(right_side);
 
 		if (right_side[len_right_side -1] == '\n')
 		{
 			right_side[len_right_side -1] = '\0';
 			--len_right_side;
+		}
+
+		if (len_right_side == 0)
+		{
+			fprintf(stderr, "%s: config (line %d): missing value for setting '%.*s'.\n",
+					PROGRAM, line_count, (int) len_left_side, left_side);
+
+			++num_errors;
+			continue;
 		}
 
 		char *end_right_side = right_side + len_right_side - 1;
@@ -221,6 +230,27 @@ int parse_config_file(char *filename, Config *config)
 			// TODO/FIXME: Use strtol instead of atoi (check for convertion success).
 			//             Check bounds for each value (< 0 and overflow).
 			config->setup_time = atoi(right_side);
+		}
+		else if (same_string("tts", left_side, len_left_side))
+		{
+			parse_command(&config->tts, right_side, len_right_side);
+		}
+		else if (same_string("tts_stdin", left_side, len_left_side))
+		{
+			if (strcmp(right_side, "true") == 0)
+			{
+				config->tts_stdin = true;
+			}
+			else if (strcmp(right_side, "false") == 0)
+			{
+				config->tts_stdin = false;
+			}
+			else
+			{
+				fprintf(stderr, "%s: config (line %d): invalid tts_stdin setting '%s' (must be 'true' or 'false').\n",
+						PROGRAM, line_count, right_side);
+				++num_errors;
+			}
 		}
 		else
 		{
@@ -370,7 +400,7 @@ int parse_program_file(char *filename, Program *all_programs,
 							buffer, ARRAY_SIZE(new_exercise->name) - 1);
 				}
 
-				// Refrence to another program file.
+				// Reference to another program file.
 				if (buffer[0] == '@')
 				{
 					switch (program_file_type)
@@ -459,6 +489,9 @@ int parse_program_file(char *filename, Program *all_programs,
 
 				// TODO/FIXME: Use strtol instead of atoi (check for convertion success).
 				//             Check bounds for each value (< 0 and overflow).
+
+				// FIXME: There seem to be too much code
+				// duplication. It may be done a better way.
 				
 				// Because atoi only takes null-terminated strings...
 				*space_pos = '\0';
@@ -476,17 +509,29 @@ int parse_program_file(char *filename, Program *all_programs,
 					
 					start_number = skip_space(space_pos + 1);
 
-					if (strchr(start_number, ' '))
-					{
-						fprintf(stderr, "%s: %s: too many properties for exercise '%s'.\n",
-								PROGRAM, base_filename, new_exercise->name);
+					space_pos = strchr(start_number, ' ');
+				}
 
-						parsing_type = PARSING_NAME;
+				if (space_pos)
+				{
+					*space_pos = '\0';
+					new_exercise->milestone = atoi(start_number);
+					
+					start_number = skip_space(space_pos + 1);
 
-						++error_count;
+					space_pos = strchr(start_number, ' ');
+				}
+
+				if (space_pos)
+				{
+					fprintf(stderr, "%s: %s: too many properties for exercise '%s'.\n",
+							PROGRAM, base_filename, new_exercise->name);
+
+					parsing_type = PARSING_NAME;
+
+					++error_count;
 						
-						continue;
-					}
+					continue;
 				}
 
 				new_exercise->pause_duration = atoi(start_number);

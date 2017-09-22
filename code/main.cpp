@@ -9,6 +9,11 @@
 
 // TODO: Implement configuration files:
 //
+//       IMPORTANT: - Allow specifying (for exercises with a
+//       duration), the interval between each "milestone" (the program
+//       says a particular time has been reached): every 15 seconds,
+//       10 seconds, ...
+//       
 //         - One for the general configuration:
 //           - Allow use of (double-)quotes.
 //           - Default exercise/program?
@@ -122,7 +127,11 @@ internal void set_music(Config *config, b32 on)
 	child_exec(music_command, CHILD_EXEC_NO_STDOUT);
 }
 
-internal int festival_say(Config *config, char *text)
+// TODO: Use tts' config Command instead of festival.
+//       Check if tts is stdin or not (if not, add text to command's
+//       arguments).
+//       (Config file parsing is already done)
+internal int tts_say(Config *config, char *text, int wait_finish = true)
 {
 	if (!config->voice_on)
 	{
@@ -158,9 +167,21 @@ internal int festival_say(Config *config, char *text)
 			dup2(pipe_fd[0], STDIN_FILENO);
 			close(pipe_fd[0]);
 
-			execlp("festival", "festival", "--tts", NULL);
+			// If the main thread does not wait for the speech to
+			// finish, playing the music is this child's job now.
+			// So the speech must be done by another child.
+			if (wait_finish)
+			{
+				// FIXME: Use config->tts
+				execlp("festival", "festival", "--tts", NULL);
 
-			perror("festival");
+				perror("festival");
+			}
+			else
+			{
+				child_exec(&config->tts, CHILD_EXEC_VERBOSE);
+				set_music(config, 1);
+			}
 
 			exit(1);
 		}
@@ -178,11 +199,17 @@ internal int festival_say(Config *config, char *text)
 
 			printf("%s", buffer);
 
-			waitpid(child_pid, NULL, 0);
+			// If we do not wait until the speech is done, the music
+			// is set by another child (which knows when the speech
+			// has finished).
+			if (wait_finish)
+			{
+				waitpid(child_pid, NULL, 0);
+
+				set_music(config, 1);
+			}
 		}
 	}
-
-	set_music(config, 1);
 
 	return 0;
 }
@@ -199,6 +226,45 @@ internal void wait_and_print_chrono(int seconds)
 	}
 
 	printf("\r\033[K");
+}
+
+internal void wait_and_print_chrono(Config* config, int seconds, int milestone_delta)
+{
+	if (!milestone_delta)
+	{
+		wait_and_print_chrono(seconds);
+		return;
+	}
+	
+	int time_in_cs = seconds * 100;
+	int milestone = milestone_delta;
+	
+	for (int i = time_in_cs; i > 0; --i)
+	{
+		printf("%.02fs\r", 0.01f * i);
+		fflush(stdout);
+		usleep(10000);
+
+		if (i == (time_in_cs -  milestone * 100))
+		{
+			char buffer[255];
+			
+			int num_written = snprintf(buffer, sizeof(buffer) - 1, "%d seconds", milestone);
+			buffer[num_written] = '\0';
+
+			tts_say(config, buffer, false);
+
+			milestone += milestone_delta;
+		}
+	}
+
+	printf("\r\033[K");
+}
+
+internal void wait_for_input()
+{
+	int c;
+	while (((c = getchar()) != '\n') && (c != EOF));
 }
 
 internal void add_exercise(Program *program, char *name, u8 series_count, i32 duration, i32 pause_duration)
@@ -394,6 +460,8 @@ int main(int argc, char* argv[])
 		return 1;
 	}
 
+	signal(SIGCHLD, SIG_IGN); 	// Avoids turning child processes into zombies
+
 	child_exec(&config.music_init, CHILD_EXEC_NO_STDOUT);
 
 	// There is no use in muting, is there?
@@ -410,43 +478,45 @@ int main(int argc, char* argv[])
 		{
 			Exercise *current_exercise = program->all_exercises + program->current_exercise++;
 
-			festival_say(&config, current_exercise->name);
+			tts_say(&config, current_exercise->name);
 			while (current_exercise->current_series++ < current_exercise->series_count)
 			{
-				festival_say(&config, "Ready");
+				tts_say(&config, "Ready");
 				
 				wait_and_print_chrono(config.setup_time);
 				
-				festival_say(&config, "Go");
+				tts_say(&config, "Go");
 
 				if (current_exercise->duration)
 				{
-					wait_and_print_chrono(current_exercise->duration);
+					wait_and_print_chrono(&config, current_exercise->duration,
+										  current_exercise->milestone);
 
-					festival_say(&config, "Stop");
+					tts_say(&config, "Stop");
 				}
 				else
 				{
 					printf("Press ENTER once you are done...\n");
 
-					getchar();
+					wait_for_input();
 				}
 
-				if (!((program->current_exercise == program->exercise_count) &&
-					  (current_exercise->current_series == current_exercise->series_count)))
+				int very_last_series = ((i == (program_count - 1)) &&
+										(program->current_exercise == program->exercise_count) &&
+										(current_exercise->current_series == current_exercise->series_count));
+				
+				if (!very_last_series)
 				{
-					festival_say(&config, "Pause");
+					tts_say(&config, "Pause");
 
 					wait_and_print_chrono(current_exercise->pause_duration);
 				}
 			}
 		}
-	}
-	
-	
+	}	
 
-	festival_say(&config, "Finished! Congratulations!");
-	festival_say(&config, "Now, go take a shower.");
+	tts_say(&config, "Finished! Congratulations!");
+	tts_say(&config, "Now, go take a shower.");
 
 	return 0;
 }
